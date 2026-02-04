@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UCL Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0a0e17',
+            'bg-card': '#111827',
+            'bg-card-alt': '#1a2035',
+            'ucl-blue': '#1a237e',
+            'ucl-bright': '#304ffe',
+            'ucl-gold': '#ffc107',
+            'ucl-green': '#00c853',
+            'ucl-yellow': '#ffab00',
+            'ucl-red': '#ff1744',
+            'border-subtle': '#1e293b',
+          },
+          fontFamily: {
+            display: ['Oswald', 'sans-serif'],
+            body: ['Source Sans 3', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #0a0e17; font-family: 'Source Sans 3', sans-serif; }
+    .tab-active { border-bottom: 2px solid #304ffe; color: #304ffe; }
+    .subtab-active { background: #304ffe; color: white; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
+    .score-input { width: 2.5rem; text-align: center; background: #1e293b; border: 1px solid #334155; color: white; border-radius: 4px; padding: 4px 0; font-size: 1rem; font-weight: 600; }
+    .score-input:focus { outline: none; border-color: #304ffe; box-shadow: 0 0 0 2px rgba(48,79,254,0.3); }
+    .match-row:hover { background: #1a2035; }
+    .bracket-line { border-color: #334155; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0e17; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .star-btn { cursor: pointer; transition: color 0.15s; }
+    .star-btn:hover { color: #ffc107; }
+    .team-name-edit { background: transparent; border: 1px solid transparent; color: white; padding: 2px 4px; border-radius: 4px; }
+    .team-name-edit:hover { border-color: #334155; }
+    .team-name-edit:focus { outline: none; border-color: #304ffe; background: #1e293b; }
+  </style>
+</head>
+<body class="text-gray-200 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-bg-card border-b border-border-subtle sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-ucl-blue flex items-center justify-center">
+            <i data-lucide="trophy" class="w-4 h-4 text-ucl-gold"></i>
+          </div>
+          <h1 class="font-display text-xl font-bold tracking-wider uppercase text-white">UCL Simulator</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="exportToExcel()" class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-ucl-blue/30 hover:bg-ucl-blue/50 rounded border border-ucl-blue/50 transition-colors" title="Export to Excel">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">Export</span>
+          </button>
+          <label class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-ucl-blue/30 hover:bg-ucl-blue/50 rounded border border-ucl-blue/50 transition-colors cursor-pointer" title="Import from Excel">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">Import</span>
+            <input type="file" accept=".xlsx,.xls" onchange="importFromExcel(event)" class="hidden">
+          </label>
+        </div>
+      </div>
+      <!-- Nav Tabs -->
+      <nav class="flex gap-1 -mb-px">
+        <button onclick="switchTab('league')" id="tab-league" class="tab-btn px-4 py-2.5 text-sm font-display uppercase tracking-wider transition-colors hover:text-ucl-bright tab-active">League Phase</button>
+        <button onclick="switchTab('standings')" id="tab-standings" class="tab-btn px-4 py-2.5 text-sm font-display uppercase tracking-wider transition-colors hover:text-ucl-bright text-gray-400">Standings</button>
+        <button onclick="switchTab('knockout')" id="tab-knockout" class="tab-btn px-4 py-2.5 text-sm font-display uppercase tracking-wider transition-colors hover:text-ucl-bright text-gray-400">Knockout</button>
+        <button onclick="switchTab('teams')" id="tab-teams" class="tab-btn px-4 py-2.5 text-sm font-display uppercase tracking-wider transition-colors hover:text-ucl-bright text-gray-400">Teams</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 py-4">
+
+    <!-- League Phase Tab -->
+    <div id="panel-league" class="tab-panel fade-in">
+      <!-- Matchday Sub-tabs -->
+      <div class="flex flex-wrap gap-1.5 mb-4">
+        <template id="matchday-tabs-template"></template>
+      </div>
+      <div id="matchday-tabs" class="flex flex-wrap gap-1.5 mb-4"></div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button onclick="generatePairings()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-bright hover:bg-blue-700 rounded font-semibold text-sm transition-colors">
+          <i data-lucide="shuffle" class="w-4 h-4"></i> Generate Pairings
+        </button>
+        <button onclick="simulateMatchday()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-blue hover:bg-indigo-800 rounded font-semibold text-sm transition-colors">
+          <i data-lucide="dices" class="w-4 h-4"></i> Simulate All
+        </button>
+        <button onclick="generateAllMatchdays()" class="flex items-center gap-1.5 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-semibold text-sm transition-colors">
+          <i data-lucide="calendar" class="w-4 h-4"></i> Generate All 8 Matchdays
+        </button>
+      </div>
+
+      <!-- Matches List -->
+      <div id="matches-container" class="space-y-1"></div>
+    </div>
+
+    <!-- Standings Tab -->
+    <div id="panel-standings" class="tab-panel hidden fade-in">
+      <div class="bg-bg-card rounded-lg border border-border-subtle overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-border-subtle text-gray-400 font-display uppercase tracking-wider text-xs">
+              <th class="px-3 py-2.5 text-left w-10">#</th>
+              <th class="px-3 py-2.5 text-left">Team</th>
+              <th class="px-3 py-2.5 text-center w-10">P</th>
+              <th class="px-3 py-2.5 text-center w-10">W</th>
+              <th class="px-3 py-2.5 text-center w-10">D</th>
+              <th class="px-3 py-2.5 text-center w-10">L</th>
+              <th class="px-3 py-2.5 text-center w-12">GF</th>
+              <th class="px-3 py-2.5 text-center w-12">GA</th>
+              <th class="px-3 py-2.5 text-center w-12">GD</th>
+              <th class="px-3 py-2.5 text-center w-12 text-white font-bold">Pts</th>
+            </tr>
+          </thead>
+          <tbody id="standings-body"></tbody>
+        </table>
+      </div>
+      <div class="flex gap-4 mt-3 text-xs text-gray-400">
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-ucl-green/30 border border-ucl-green/50"></span> R16 (1-8)</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-ucl-yellow/30 border border-ucl-yellow/50"></span> Playoffs (9-24)</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-ucl-red/30 border border-ucl-red/50"></span> Eliminated (25-36)</span>
+      </div>
+    </div>
+
+    <!-- Knockout Tab -->
+    <div id="panel-knockout" class="tab-panel hidden fade-in">
+      <!-- Knockout sub-tabs -->
+      <div class="flex flex-wrap gap-1.5 mb-4">
+        <button onclick="switchKnockoutRound('playoffs')" id="ko-tab-playoffs" class="ko-tab-btn px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors subtab-active">Playoffs</button>
+        <button onclick="switchKnockoutRound('r16')" id="ko-tab-r16" class="ko-tab-btn px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors bg-bg-card-alt text-gray-400 hover:text-white">Round of 16</button>
+        <button onclick="switchKnockoutRound('qf')" id="ko-tab-qf" class="ko-tab-btn px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors bg-bg-card-alt text-gray-400 hover:text-white">Quarter-Finals</button>
+        <button onclick="switchKnockoutRound('sf')" id="ko-tab-sf" class="ko-tab-btn px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors bg-bg-card-alt text-gray-400 hover:text-white">Semi-Finals</button>
+        <button onclick="switchKnockoutRound('final')" id="ko-tab-final" class="ko-tab-btn px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors bg-bg-card-alt text-gray-400 hover:text-white">Final</button>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button onclick="generateKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-bright hover:bg-blue-700 rounded font-semibold text-sm transition-colors">
+          <i data-lucide="git-branch" class="w-4 h-4"></i> <span id="generate-ko-label">Generate Playoff Draw</span>
+        </button>
+        <button onclick="simulateKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-blue hover:bg-indigo-800 rounded font-semibold text-sm transition-colors">
+          <i data-lucide="dices" class="w-4 h-4"></i> Simulate Round
+        </button>
+        <button onclick="advanceKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-semibold text-sm transition-colors">
+          <i data-lucide="arrow-right" class="w-4 h-4"></i> Advance Winners
+        </button>
+      </div>
+
+      <div id="knockout-container"></div>
+    </div>
+
+    <!-- Teams Tab -->
+    <div id="panel-teams" class="tab-panel hidden fade-in">
+      <div class="mb-4">
+        <input type="text" id="team-search" oninput="renderTeams()" placeholder="Search teams..." class="w-full sm:w-72 px-3 py-2 bg-bg-card border border-border-subtle rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-ucl-bright">
+      </div>
+      <div id="teams-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"></div>
+    </div>
+
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-4 right-4 bg-bg-card border border-border-subtle rounded-lg px-4 py-3 text-sm shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 z-50"></div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const DEFAULT_TEAMS = [
+  { id: 1, name: 'Real Madrid', stars: 5, pot: 1 },
+  { id: 2, name: 'Barcelona', stars: 5, pot: 1 },
+  { id: 3, name: 'Man City', stars: 5, pot: 1 },
+  { id: 4, name: 'Bayern', stars: 5, pot: 1 },
+  { id: 5, name: 'PSG', stars: 4, pot: 1 },
+  { id: 6, name: 'Inter', stars: 4, pot: 1 },
+  { id: 7, name: 'Liverpool', stars: 5, pot: 1 },
+  { id: 8, name: 'Dortmund', stars: 4, pot: 1 },
+  { id: 9, name: 'RB Leipzig', stars: 3, pot: 1 },
+  { id: 10, name: 'Juventus', stars: 4, pot: 2 },
+  { id: 11, name: 'Chelsea', stars: 4, pot: 2 },
+  { id: 12, name: 'Atletico Madrid', stars: 4, pot: 2 },
+  { id: 13, name: 'Benfica', stars: 3, pot: 2 },
+  { id: 14, name: 'Arsenal', stars: 4, pot: 2 },
+  { id: 15, name: 'Club Brugge', stars: 2, pot: 2 },
+  { id: 16, name: 'Shakhtar', stars: 2, pot: 2 },
+  { id: 17, name: 'AC Milan', stars: 4, pot: 2 },
+  { id: 18, name: 'Feyenoord', stars: 3, pot: 2 },
+  { id: 19, name: 'Sporting CP', stars: 3, pot: 3 },
+  { id: 20, name: 'PSV', stars: 3, pot: 3 },
+  { id: 21, name: 'Celtic', stars: 2, pot: 3 },
+  { id: 22, name: 'RB Salzburg', stars: 2, pot: 3 },
+  { id: 23, name: 'Young Boys', stars: 1, pot: 3 },
+  { id: 24, name: 'Red Star Belgrade', stars: 2, pot: 3 },
+  { id: 25, name: 'Aston Villa', stars: 3, pot: 3 },
+  { id: 26, name: 'Monaco', stars: 3, pot: 3 },
+  { id: 27, name: 'Brest', stars: 2, pot: 3 },
+  { id: 28, name: 'Girona', stars: 2, pot: 4 },
+  { id: 29, name: 'Stuttgart', stars: 3, pot: 4 },
+  { id: 30, name: 'Sturm Graz', stars: 1, pot: 4 },
+  { id: 31, name: 'Bologna', stars: 2, pot: 4 },
+  { id: 32, name: 'Sparta Prague', stars: 2, pot: 4 },
+  { id: 33, name: 'Slovan Bratislava', stars: 1, pot: 4 },
+  { id: 34, name: 'Dinamo Zagreb', stars: 2, pot: 4 },
+  { id: 35, name: 'Lille', stars: 3, pot: 4 },
+  { id: 36, name: 'Atalanta', stars: 3, pot: 4 },
+];
+
+let state = {
+  teams: JSON.parse(JSON.stringify(DEFAULT_TEAMS)),
+  leagueMatches: [], // { id, day, home, away, homeScore, awayScore, locked, played }
+  playoffs: { ties: [] },
+  bracket: {
+    r16: [],
+    qf: [],
+    sf: [],
+    final: null
+  },
+  phase: 'league',
+  currentMatchday: 1,
+  currentKnockoutRound: 'playoffs',
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+function getTeam(id) {
+  return state.teams.find(t => t.id === id);
+}
+
+function getTeamName(id) {
+  const t = getTeam(id);
+  return t ? t.name : '???';
+}
+
+function showToast(msg, type = 'info') {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = 'fixed bottom-4 right-4 bg-bg-card border rounded-lg px-4 py-3 text-sm shadow-xl transition-all duration-300 z-50 translate-y-0 opacity-100';
+  if (type === 'success') toast.classList.add('border-ucl-green', 'text-ucl-green');
+  else if (type === 'error') toast.classList.add('border-ucl-red', 'text-ucl-red');
+  else toast.classList.add('border-ucl-bright', 'text-ucl-bright');
+  setTimeout(() => {
+    toast.classList.remove('translate-y-0', 'opacity-100');
+    toast.classList.add('translate-y-20', 'opacity-0');
+  }, 2500);
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function poissonRandom(lambda) {
+  let L = Math.exp(-lambda);
+  let k = 0;
+  let p = 1;
+  do {
+    k++;
+    p *= Math.random();
+  } while (p > L);
+  return k - 1;
+}
+
+function simulateScore(homeStars, awayStars) {
+  const homeExpected = 0.5 + homeStars * 0.4 + 0.3; // home advantage
+  const awayExpected = 0.5 + awayStars * 0.4;
+  return {
+    home: poissonRandom(homeExpected),
+    away: poissonRandom(awayExpected)
+  };
+}
+
+function starsHTML(count, size = 'w-3 h-3') {
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    const color = i < count ? 'text-ucl-gold' : 'text-gray-600';
+    html += `<i data-lucide="star" class="${size} ${color} inline-block"></i>`;
+  }
+  return html;
+}
+
+// ============================================================
+// TAB NAVIGATION
+// ============================================================
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('tab-active'); b.classList.add('text-gray-400'); });
+  document.getElementById(`panel-${tab}`).classList.remove('hidden');
+  document.getElementById(`tab-${tab}`).classList.add('tab-active');
+  document.getElementById(`tab-${tab}`).classList.remove('text-gray-400');
+
+  if (tab === 'standings') renderStandings();
+  if (tab === 'knockout') renderKnockout();
+  if (tab === 'teams') renderTeams();
+  if (tab === 'league') renderMatchday();
+}
+
+// ============================================================
+// MATCHDAY TABS
+// ============================================================
+function renderMatchdayTabs() {
+  const container = document.getElementById('matchday-tabs');
+  container.innerHTML = '';
+  for (let d = 1; d <= 8; d++) {
+    const active = d === state.currentMatchday;
+    const btn = document.createElement('button');
+    btn.className = `px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors ${active ? 'subtab-active' : 'bg-bg-card-alt text-gray-400 hover:text-white'}`;
+    btn.textContent = `MD ${d}`;
+    btn.onclick = () => { state.currentMatchday = d; renderMatchdayTabs(); renderMatchday(); };
+    container.appendChild(btn);
+  }
+}
+
+// ============================================================
+// LEAGUE PHASE RENDERING
+// ============================================================
+function renderMatchday() {
+  const container = document.getElementById('matches-container');
+  const day = state.currentMatchday;
+  const matches = state.leagueMatches.filter(m => m.day === day);
+
+  if (matches.length === 0) {
+    container.innerHTML = `
+      <div class="bg-bg-card rounded-lg border border-border-subtle p-8 text-center text-gray-500">
+        <p class="font-display text-lg uppercase tracking-wider mb-2">No matches generated</p>
+        <p class="text-sm">Click "Generate Pairings" to create matchday ${day} fixtures, or "Generate All 8 Matchdays" for all rounds.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = matches.map(m => {
+    const homeTeam = getTeam(m.home);
+    const awayTeam = getTeam(m.away);
+    const lockIcon = m.locked ? 'lock' : 'unlock';
+    const lockColor = m.locked ? 'text-ucl-gold' : 'text-gray-500';
+    return `
+      <div class="match-row bg-bg-card rounded border border-border-subtle px-3 py-2 flex items-center gap-2 transition-colors">
+        <div class="flex-1 text-right">
+          <span class="text-sm font-semibold text-white">${homeTeam.name}</span>
+          <span class="text-xs text-gray-500 ml-1.5">${starsHTML(homeTeam.stars, 'w-2 h-2')}</span>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <input type="number" min="0" max="20" class="score-input" value="${m.homeScore !== null ? m.homeScore : ''}" onchange="updateScore(${m.id}, 'home', this.value)" placeholder="-">
+          <span class="text-gray-500 text-xs font-bold">:</span>
+          <input type="number" min="0" max="20" class="score-input" value="${m.awayScore !== null ? m.awayScore : ''}" onchange="updateScore(${m.id}, 'away', this.value)" placeholder="-">
+        </div>
+        <div class="flex-1">
+          <span class="text-xs text-gray-500 mr-1.5">${starsHTML(awayTeam.stars, 'w-2 h-2')}</span>
+          <span class="text-sm font-semibold text-white">${awayTeam.name}</span>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <button onclick="toggleLock(${m.id})" class="p-1 rounded hover:bg-white/5 transition-colors ${lockColor}" title="${m.locked ? 'Unlock' : 'Lock'}">
+            <i data-lucide="${lockIcon}" class="w-3.5 h-3.5"></i>
+          </button>
+          <button onclick="simulateSingleMatch(${m.id})" class="p-1 rounded hover:bg-white/5 transition-colors text-gray-400 hover:text-ucl-bright" title="Simulate">
+            <i data-lucide="dices" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+function updateScore(matchId, side, val) {
+  const m = state.leagueMatches.find(x => x.id === matchId);
+  if (!m) return;
+  const score = val === '' ? null : parseInt(val);
+  if (side === 'home') m.homeScore = score;
+  else m.awayScore = score;
+  m.played = m.homeScore !== null && m.awayScore !== null;
+}
+
+function toggleLock(matchId) {
+  const m = state.leagueMatches.find(x => x.id === matchId);
+  if (m) { m.locked = !m.locked; renderMatchday(); }
+}
+
+function simulateSingleMatch(matchId) {
+  const m = state.leagueMatches.find(x => x.id === matchId);
+  if (!m) return;
+  const homeTeam = getTeam(m.home);
+  const awayTeam = getTeam(m.away);
+  const result = simulateScore(homeTeam.stars, awayTeam.stars);
+  m.homeScore = result.home;
+  m.awayScore = result.away;
+  m.played = true;
+  renderMatchday();
+}
+
+function simulateMatchday() {
+  const day = state.currentMatchday;
+  const matches = state.leagueMatches.filter(m => m.day === day);
+  if (matches.length === 0) { showToast('No matches to simulate. Generate pairings first.', 'error'); return; }
+  matches.forEach(m => {
+    const homeTeam = getTeam(m.home);
+    const awayTeam = getTeam(m.away);
+    const result = simulateScore(homeTeam.stars, awayTeam.stars);
+    m.homeScore = result.home;
+    m.awayScore = result.away;
+    m.played = true;
+  });
+  renderMatchday();
+  showToast(`Matchday ${day} simulated!`, 'success');
+}
+
+// ============================================================
+// MATCHDAY GENERATION
+// ============================================================
+function generatePairings() {
+  const day = state.currentMatchday;
+  // Remove unlocked matches for this day
+  state.leagueMatches = state.leagueMatches.filter(m => m.day !== day || m.locked);
+  const lockedMatches = state.leagueMatches.filter(m => m.day === day && m.locked);
+  const lockedTeamIds = new Set();
+  lockedMatches.forEach(m => { lockedTeamIds.add(m.home); lockedTeamIds.add(m.away); });
+
+  // Get teams that still need pairing
+  const availableTeams = state.teams.filter(t => !lockedTeamIds.has(t.id));
+
+  // Check home/away counts across all matchdays for balance
+  const homeCounts = {};
+  const awayCounts = {};
+  const opponents = {}; // track who each team has already played
+  state.teams.forEach(t => { homeCounts[t.id] = 0; awayCounts[t.id] = 0; opponents[t.id] = new Set(); });
+
+  state.leagueMatches.forEach(m => {
+    homeCounts[m.home] = (homeCounts[m.home] || 0) + 1;
+    awayCounts[m.away] = (awayCounts[m.away] || 0) + 1;
+    opponents[m.home].add(m.away);
+    opponents[m.away].add(m.home);
+  });
+
+  // Try to create valid pairings
+  const pairs = createPairings(availableTeams, homeCounts, awayCounts, opponents);
+
+  if (!pairs) {
+    showToast('Could not generate valid pairings. Try unlocking some matches or regenerating earlier matchdays.', 'error');
+    return;
+  }
+
+  const maxId = state.leagueMatches.length > 0 ? Math.max(...state.leagueMatches.map(m => m.id)) : 0;
+  pairs.forEach((pair, i) => {
+    state.leagueMatches.push({
+      id: maxId + i + 1,
+      day: day,
+      home: pair[0],
+      away: pair[1],
+      homeScore: null,
+      awayScore: null,
+      locked: false,
+      played: false
+    });
+  });
+
+  renderMatchday();
+  showToast(`Matchday ${day} pairings generated!`, 'success');
+}
+
+function createPairings(teams, homeCounts, awayCounts, opponents) {
+  if (teams.length % 2 !== 0) return null;
+
+  // Attempt multiple times with random shuffles
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const shuffled = shuffle(teams);
+    const pairs = [];
+    const used = new Set();
+    let valid = true;
+
+    for (let i = 0; i < shuffled.length && valid; i++) {
+      if (used.has(shuffled[i].id)) continue;
+      let paired = false;
+      for (let j = i + 1; j < shuffled.length; j++) {
+        if (used.has(shuffled[j].id)) continue;
+        // Check they haven't played each other
+        if (opponents[shuffled[i].id].has(shuffled[j].id)) continue;
+
+        // Decide home/away based on balance
+        let homeId, awayId;
+        const iHomeNeed = 4 - (homeCounts[shuffled[i].id] || 0);
+        const jHomeNeed = 4 - (homeCounts[shuffled[j].id] || 0);
+        const iAwayNeed = 4 - (awayCounts[shuffled[i].id] || 0);
+        const jAwayNeed = 4 - (awayCounts[shuffled[j].id] || 0);
+
+        if (iHomeNeed > 0 && jAwayNeed > 0 && iHomeNeed >= jHomeNeed) {
+          homeId = shuffled[i].id;
+          awayId = shuffled[j].id;
+        } else if (jHomeNeed > 0 && iAwayNeed > 0) {
+          homeId = shuffled[j].id;
+          awayId = shuffled[i].id;
+        } else if (iHomeNeed > 0) {
+          homeId = shuffled[i].id;
+          awayId = shuffled[j].id;
+        } else {
+          homeId = shuffled[j].id;
+          awayId = shuffled[i].id;
+        }
+
+        pairs.push([homeId, awayId]);
+        used.add(shuffled[i].id);
+        used.add(shuffled[j].id);
+        paired = true;
+        break;
+      }
+      if (!paired && !used.has(shuffled[i].id)) { valid = false; }
+    }
+
+    if (valid && pairs.length === teams.length / 2) return pairs;
+  }
+  return null;
+}
+
+function generateAllMatchdays() {
+  // Clear all unlocked matches
+  state.leagueMatches = state.leagueMatches.filter(m => m.locked);
+
+  // Build full schedule for all 8 matchdays
+  const allTeams = [...state.teams];
+  const homeCounts = {};
+  const awayCounts = {};
+  const opponents = {};
+  const dayTeams = {}; // track which teams are used per day
+
+  allTeams.forEach(t => {
+    homeCounts[t.id] = 0;
+    awayCounts[t.id] = 0;
+    opponents[t.id] = new Set();
+  });
+
+  // Account for locked matches
+  for (let d = 1; d <= 8; d++) dayTeams[d] = new Set();
+  state.leagueMatches.forEach(m => {
+    homeCounts[m.home]++;
+    awayCounts[m.away]++;
+    opponents[m.home].add(m.away);
+    opponents[m.away].add(m.home);
+    dayTeams[m.day].add(m.home);
+    dayTeams[m.day].add(m.away);
+  });
+
+  let nextId = state.leagueMatches.length > 0 ? Math.max(...state.leagueMatches.map(m => m.id)) + 1 : 1;
+  let success = true;
+
+  for (let day = 1; day <= 8; day++) {
+    const availableTeams = allTeams.filter(t => !dayTeams[day].has(t.id));
+    if (availableTeams.length === 0) continue;
+
+    const pairs = createPairings(availableTeams, homeCounts, awayCounts, opponents);
+    if (!pairs) {
+      showToast(`Failed to generate valid pairings for matchday ${day}. Try clearing locked matches.`, 'error');
+      success = false;
+      break;
+    }
+
+    pairs.forEach(pair => {
+      state.leagueMatches.push({
+        id: nextId++,
+        day: day,
+        home: pair[0],
+        away: pair[1],
+        homeScore: null,
+        awayScore: null,
+        locked: false,
+        played: false
+      });
+      homeCounts[pair[0]]++;
+      awayCounts[pair[1]]++;
+      opponents[pair[0]].add(pair[1]);
+      opponents[pair[1]].add(pair[0]);
+      dayTeams[day].add(pair[0]);
+      dayTeams[day].add(pair[1]);
+    });
+  }
+
+  if (success) showToast('All 8 matchdays generated!', 'success');
+  renderMatchday();
+}
+
+// ============================================================
+// STANDINGS
+// ============================================================
+function calculateStandings() {
+  const table = {};
+  state.teams.forEach(t => {
+    table[t.id] = { teamId: t.id, name: t.name, stars: t.stars, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0 };
+  });
+
+  state.leagueMatches.filter(m => m.played).forEach(m => {
+    const h = table[m.home];
+    const a = table[m.away];
+    if (!h || !a) return;
+
+    h.p++; a.p++;
+    h.gf += m.homeScore; h.ga += m.awayScore;
+    a.gf += m.awayScore; a.ga += m.homeScore;
+
+    if (m.homeScore > m.awayScore) { h.w++; h.pts += 3; a.l++; }
+    else if (m.homeScore < m.awayScore) { a.w++; a.pts += 3; h.l++; }
+    else { h.d++; a.d++; h.pts += 1; a.pts += 1; }
+
+    h.gd = h.gf - h.ga;
+    a.gd = a.gf - a.ga;
+  });
+
+  const sorted = Object.values(table).sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    if (b.gd !== a.gd) return b.gd - a.gd;
+    if (b.gf !== a.gf) return b.gf - a.gf;
+    return a.name.localeCompare(b.name);
+  });
+
+  return sorted;
+}
+
+function renderStandings() {
+  const standings = calculateStandings();
+  const body = document.getElementById('standings-body');
+  body.innerHTML = standings.map((row, i) => {
+    const pos = i + 1;
+    let rowBg = '';
+    if (pos <= 8) rowBg = 'bg-ucl-green/5 border-l-2 border-l-ucl-green';
+    else if (pos <= 24) rowBg = 'bg-ucl-yellow/5 border-l-2 border-l-ucl-yellow';
+    else rowBg = 'bg-ucl-red/5 border-l-2 border-l-ucl-red';
+
+    return `
+      <tr class="${rowBg} border-b border-border-subtle/50 hover:bg-white/5 transition-colors">
+        <td class="px-3 py-2 text-gray-400 font-display">${pos}</td>
+        <td class="px-3 py-2">
+          <span class="text-white font-semibold">${row.name}</span>
+          <span class="ml-2 text-xs text-gray-500">${starsHTML(row.stars, 'w-2 h-2')}</span>
+        </td>
+        <td class="px-3 py-2 text-center text-gray-400">${row.p}</td>
+        <td class="px-3 py-2 text-center text-gray-400">${row.w}</td>
+        <td class="px-3 py-2 text-center text-gray-400">${row.d}</td>
+        <td class="px-3 py-2 text-center text-gray-400">${row.l}</td>
+        <td class="px-3 py-2 text-center text-gray-400">${row.gf}</td>
+        <td class="px-3 py-2 text-center text-gray-400">${row.ga}</td>
+        <td class="px-3 py-2 text-center ${row.gd > 0 ? 'text-ucl-green' : row.gd < 0 ? 'text-ucl-red' : 'text-gray-400'}">${row.gd > 0 ? '+' : ''}${row.gd}</td>
+        <td class="px-3 py-2 text-center text-white font-bold">${row.pts}</td>
+      </tr>`;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+// ============================================================
+// KNOCKOUT PHASE
+// ============================================================
+function switchKnockoutRound(round) {
+  state.currentKnockoutRound = round;
+  document.querySelectorAll('.ko-tab-btn').forEach(b => { b.classList.remove('subtab-active'); b.classList.add('bg-bg-card-alt', 'text-gray-400'); });
+  const tab = document.getElementById(`ko-tab-${round}`);
+  tab.classList.add('subtab-active');
+  tab.classList.remove('bg-bg-card-alt', 'text-gray-400');
+
+  const labels = { playoffs: 'Generate Playoff Draw', r16: 'Generate R16 Draw', qf: 'Generate QF Draw', sf: 'Generate SF Draw', final: 'Generate Final' };
+  document.getElementById('generate-ko-label').textContent = labels[round] || 'Generate Draw';
+
+  renderKnockout();
+}
+
+function renderKnockout() {
+  const container = document.getElementById('knockout-container');
+  const round = state.currentKnockoutRound;
+
+  if (round === 'final') {
+    renderFinal(container);
+    return;
+  }
+
+  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+  if (!ties || ties.length === 0) {
+    container.innerHTML = `
+      <div class="bg-bg-card rounded-lg border border-border-subtle p-8 text-center text-gray-500">
+        <p class="font-display text-lg uppercase tracking-wider mb-2">No draw yet</p>
+        <p class="text-sm">Click "Generate ${round === 'playoffs' ? 'Playoff' : round.toUpperCase()} Draw" to create the fixtures.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = ties.map((tie, i) => {
+    const homeName = getTeamName(tie.home);
+    const awayName = getTeamName(tie.away);
+    const homeTeam = getTeam(tie.home);
+    const awayTeam = getTeam(tie.away);
+
+    const agg1 = (tie.leg1H !== null && tie.leg1A !== null && tie.leg2H !== null && tie.leg2A !== null)
+      ? `(${(tie.leg1H||0)+(tie.leg2A||0)} - ${(tie.leg1A||0)+(tie.leg2H||0)} agg)`
+      : '';
+
+    return `
+      <div class="bg-bg-card rounded-lg border border-border-subtle p-3 mb-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-display uppercase tracking-wider text-gray-500">Tie ${i+1}</span>
+          <div class="flex items-center gap-1">
+            <span class="text-xs text-gray-500">${agg1}</span>
+            <button onclick="simulateKnockoutTie('${round}', ${i})" class="p-1 rounded hover:bg-white/5 text-gray-400 hover:text-ucl-bright" title="Simulate tie">
+              <i data-lucide="dices" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+        <!-- Leg 1 -->
+        <div class="flex items-center gap-2 mb-1.5">
+          <span class="text-xs text-gray-500 w-10 shrink-0">Leg 1</span>
+          <div class="flex-1 text-right text-sm font-semibold text-white">${homeName}</div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <input type="number" min="0" max="20" class="score-input" value="${tie.leg1H !== null ? tie.leg1H : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg1H', this.value)" placeholder="-">
+            <span class="text-gray-500 text-xs font-bold">:</span>
+            <input type="number" min="0" max="20" class="score-input" value="${tie.leg1A !== null ? tie.leg1A : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg1A', this.value)" placeholder="-">
+          </div>
+          <div class="flex-1 text-sm font-semibold text-white">${awayName}</div>
+        </div>
+        <!-- Leg 2 -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-500 w-10 shrink-0">Leg 2</span>
+          <div class="flex-1 text-right text-sm font-semibold text-white">${awayName}</div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <input type="number" min="0" max="20" class="score-input" value="${tie.leg2H !== null ? tie.leg2H : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg2H', this.value)" placeholder="-">
+            <span class="text-gray-500 text-xs font-bold">:</span>
+            <input type="number" min="0" max="20" class="score-input" value="${tie.leg2A !== null ? tie.leg2A : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg2A', this.value)" placeholder="-">
+          </div>
+          <div class="flex-1 text-sm font-semibold text-white">${homeName}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+function renderFinal(container) {
+  const f = state.bracket.final;
+  if (!f) {
+    container.innerHTML = `
+      <div class="bg-bg-card rounded-lg border border-border-subtle p-8 text-center text-gray-500">
+        <p class="font-display text-lg uppercase tracking-wider mb-2">Final not set</p>
+        <p class="text-sm">Advance winners from the semi-finals to set up the Final.</p>
+      </div>`;
+    return;
+  }
+
+  const homeName = getTeamName(f.home);
+  const awayName = getTeamName(f.away);
+
+  container.innerHTML = `
+    <div class="max-w-lg mx-auto">
+      <div class="bg-gradient-to-b from-ucl-blue/30 to-bg-card rounded-lg border border-ucl-blue/50 p-6">
+        <div class="text-center mb-4">
+          <i data-lucide="trophy" class="w-8 h-8 text-ucl-gold mx-auto mb-2"></i>
+          <h3 class="font-display text-xl uppercase tracking-wider text-ucl-gold">UCL Final</h3>
+        </div>
+        <div class="flex items-center gap-3 justify-center">
+          <div class="text-right flex-1">
+            <p class="text-lg font-bold text-white">${homeName}</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input type="number" min="0" max="20" class="score-input text-lg w-12 h-10" value="${f.homeScore !== null ? f.homeScore : ''}" onchange="updateFinalScore('home', this.value)" placeholder="-">
+            <span class="text-gray-400 font-bold text-lg">:</span>
+            <input type="number" min="0" max="20" class="score-input text-lg w-12 h-10" value="${f.awayScore !== null ? f.awayScore : ''}" onchange="updateFinalScore('away', this.value)" placeholder="-">
+          </div>
+          <div class="flex-1">
+            <p class="text-lg font-bold text-white">${awayName}</p>
+          </div>
+        </div>
+        <div class="text-center mt-4">
+          <button onclick="simulateFinal()" class="px-4 py-2 bg-ucl-gold/20 hover:bg-ucl-gold/30 text-ucl-gold rounded font-semibold text-sm transition-colors border border-ucl-gold/30">
+            <i data-lucide="dices" class="w-4 h-4 inline mr-1"></i> Simulate Final
+          </button>
+        </div>
+        ${f.homeScore !== null && f.awayScore !== null ? `
+          <div class="text-center mt-4 pt-4 border-t border-ucl-blue/30">
+            <p class="text-ucl-gold font-display text-lg uppercase tracking-wider">
+              ${f.homeScore > f.awayScore ? homeName : f.awayScore > f.homeScore ? awayName : 'Draw'} ${f.homeScore !== f.awayScore ? 'Wins!' : '(Decide by penalties)'}
+            </p>
+          </div>` : ''}
+      </div>
+    </div>`;
+
+  lucide.createIcons();
+}
+
+function updateKnockoutScore(round, tieIdx, field, val) {
+  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+  if (!ties || !ties[tieIdx]) return;
+  ties[tieIdx][field] = val === '' ? null : parseInt(val);
+}
+
+function updateFinalScore(side, val) {
+  if (!state.bracket.final) return;
+  const score = val === '' ? null : parseInt(val);
+  if (side === 'home') state.bracket.final.homeScore = score;
+  else state.bracket.final.awayScore = score;
+  renderKnockout();
+}
+
+function simulateKnockoutTie(round, tieIdx) {
+  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+  if (!ties || !ties[tieIdx]) return;
+  const tie = ties[tieIdx];
+  const homeTeam = getTeam(tie.home);
+  const awayTeam = getTeam(tie.away);
+
+  // Leg 1: home team hosts
+  const leg1 = simulateScore(homeTeam.stars, awayTeam.stars);
+  tie.leg1H = leg1.home;
+  tie.leg1A = leg1.away;
+
+  // Leg 2: away team hosts
+  const leg2 = simulateScore(awayTeam.stars, homeTeam.stars);
+  tie.leg2H = leg2.home;
+  tie.leg2A = leg2.away;
+
+  renderKnockout();
+}
+
+function simulateFinal() {
+  if (!state.bracket.final) return;
+  const f = state.bracket.final;
+  const homeTeam = getTeam(f.home);
+  const awayTeam = getTeam(f.away);
+  const result = simulateScore(homeTeam.stars, awayTeam.stars);
+  f.homeScore = result.home;
+  f.awayScore = result.away;
+  // Ensure no draw in final
+  if (f.homeScore === f.awayScore) {
+    if (Math.random() > 0.5) f.homeScore++;
+    else f.awayScore++;
+  }
+  renderKnockout();
+}
+
+function simulateKnockoutRound() {
+  const round = state.currentKnockoutRound;
+  if (round === 'final') { simulateFinal(); return; }
+  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+  if (!ties || ties.length === 0) { showToast('No ties to simulate. Generate the draw first.', 'error'); return; }
+  ties.forEach((_, i) => simulateKnockoutTie(round, i));
+  showToast(`${round === 'playoffs' ? 'Playoffs' : round.toUpperCase()} simulated!`, 'success');
+}
+
+function generateKnockoutRound() {
+  const round = state.currentKnockoutRound;
+
+  if (round === 'playoffs') {
+    generatePlayoffs();
+  } else if (round === 'r16') {
+    generateR16();
+  } else if (round === 'qf') {
+    generateQF();
+  } else if (round === 'sf') {
+    generateSF();
+  } else if (round === 'final') {
+    generateFinalDraw();
+  }
+}
+
+function getKnockoutWinner(tie) {
+  if (tie.leg1H === null || tie.leg1A === null || tie.leg2H === null || tie.leg2A === null) return null;
+  const homeAgg = (tie.leg1H || 0) + (tie.leg2A || 0);
+  const awayAgg = (tie.leg1A || 0) + (tie.leg2H || 0);
+  if (homeAgg > awayAgg) return tie.home;
+  if (awayAgg > homeAgg) return tie.away;
+  // Away goals rule (removed in real UCL but we'll use random tiebreaker)
+  return Math.random() > 0.5 ? tie.home : tie.away;
+}
+
+function generatePlayoffs() {
+  const standings = calculateStandings();
+  const playoffTeams = standings.slice(8, 24); // 9th-24th
+  if (playoffTeams.length < 16) {
+    showToast('Need complete standings first. Play all league matches.', 'error');
+    return;
+  }
+
+  // Seeded (9-16) vs Unseeded (17-24)
+  const seeded = playoffTeams.slice(0, 8);
+  const unseeded = shuffle(playoffTeams.slice(8, 16));
+
+  state.playoffs.ties = seeded.map((s, i) => ({
+    home: unseeded[i].teamId,
+    away: s.teamId,
+    leg1H: null, leg1A: null, leg2H: null, leg2A: null
+  }));
+
+  showToast('Playoff draw complete!', 'success');
+  renderKnockout();
+}
+
+function generateR16() {
+  const standings = calculateStandings();
+  const top8 = standings.slice(0, 8);
+
+  // Get playoff winners
+  if (state.playoffs.ties.length === 0) {
+    showToast('Generate and complete playoffs first.', 'error');
+    return;
+  }
+  const playoffWinners = state.playoffs.ties.map(getKnockoutWinner).filter(Boolean);
+  if (playoffWinners.length < 8) {
+    showToast('Complete all playoff ties first.', 'error');
+    return;
+  }
+
+  // Top 8 are seeded, playoff winners unseeded
+  const unseeded = shuffle(playoffWinners);
+  state.bracket.r16 = top8.map((s, i) => ({
+    home: unseeded[i],
+    away: s.teamId,
+    leg1H: null, leg1A: null, leg2H: null, leg2A: null
+  }));
+
+  showToast('R16 draw complete!', 'success');
+  renderKnockout();
+}
+
+function generateQF() {
+  if (state.bracket.r16.length === 0) { showToast('Complete the Round of 16 first.', 'error'); return; }
+  const winners = state.bracket.r16.map(getKnockoutWinner).filter(Boolean);
+  if (winners.length < 8) { showToast('Complete all R16 ties first.', 'error'); return; }
+
+  const shuffled = shuffle(winners);
+  state.bracket.qf = [];
+  for (let i = 0; i < shuffled.length; i += 2) {
+    state.bracket.qf.push({
+      home: shuffled[i], away: shuffled[i + 1],
+      leg1H: null, leg1A: null, leg2H: null, leg2A: null
+    });
+  }
+  showToast('QF draw complete!', 'success');
+  renderKnockout();
+}
+
+function generateSF() {
+  if (state.bracket.qf.length === 0) { showToast('Complete the Quarter-Finals first.', 'error'); return; }
+  const winners = state.bracket.qf.map(getKnockoutWinner).filter(Boolean);
+  if (winners.length < 4) { showToast('Complete all QF ties first.', 'error'); return; }
+
+  const shuffled = shuffle(winners);
+  state.bracket.sf = [];
+  for (let i = 0; i < shuffled.length; i += 2) {
+    state.bracket.sf.push({
+      home: shuffled[i], away: shuffled[i + 1],
+      leg1H: null, leg1A: null, leg2H: null, leg2A: null
+    });
+  }
+  showToast('SF draw complete!', 'success');
+  renderKnockout();
+}
+
+function generateFinalDraw() {
+  if (state.bracket.sf.length === 0) { showToast('Complete the Semi-Finals first.', 'error'); return; }
+  const winners = state.bracket.sf.map(getKnockoutWinner).filter(Boolean);
+  if (winners.length < 2) { showToast('Complete all SF ties first.', 'error'); return; }
+
+  state.bracket.final = {
+    home: winners[0], away: winners[1],
+    homeScore: null, awayScore: null
+  };
+  showToast('Final set!', 'success');
+  renderKnockout();
+}
+
+function advanceKnockoutRound() {
+  const round = state.currentKnockoutRound;
+  const next = { playoffs: 'r16', r16: 'qf', qf: 'sf', sf: 'final' };
+  if (!next[round]) { showToast('No next round to advance to.', 'error'); return; }
+  switchKnockoutRound(next[round]);
+  generateKnockoutRound();
+}
+
+// ============================================================
+// TEAMS TAB
+// ============================================================
+function renderTeams() {
+  const search = (document.getElementById('team-search')?.value || '').toLowerCase();
+  const filtered = state.teams.filter(t => t.name.toLowerCase().includes(search));
+  const grid = document.getElementById('teams-grid');
+
+  grid.innerHTML = filtered.map(t => `
+    <div class="bg-bg-card rounded-lg border border-border-subtle p-3 hover:border-ucl-bright/30 transition-colors">
+      <div class="flex items-center justify-between mb-2">
+        <input type="text" value="${t.name}" class="team-name-edit text-sm font-semibold flex-1 mr-2" onchange="updateTeamName(${t.id}, this.value)" onblur="updateTeamName(${t.id}, this.value)">
+        <span class="text-xs text-gray-500 font-display">Pot ${t.pot}</span>
+      </div>
+      <div class="flex items-center gap-0.5">
+        ${[1,2,3,4,5].map(s => `
+          <button onclick="updateTeamStars(${t.id}, ${s})" class="star-btn ${s <= t.stars ? 'text-ucl-gold' : 'text-gray-600'}">
+            <i data-lucide="star" class="w-4 h-4"></i>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  lucide.createIcons();
+}
+
+function updateTeamName(id, name) {
+  const t = getTeam(id);
+  if (t && name.trim()) t.name = name.trim();
+}
+
+function updateTeamStars(id, stars) {
+  const t = getTeam(id);
+  if (t) { t.stars = stars; renderTeams(); }
+}
+
+// ============================================================
+// EXCEL EXPORT / IMPORT
+// ============================================================
+function exportToExcel() {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Teams
+  const teamsData = state.teams.map(t => ({ ID: t.id, Name: t.name, Stars: t.stars, Pot: t.pot }));
+  const ws1 = XLSX.utils.json_to_sheet(teamsData);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Teams');
+
+  // Sheet 2: League Matches
+  const matchData = state.leagueMatches.map(m => ({
+    ID: m.id, Matchday: m.day, HomeID: m.home, Home: getTeamName(m.home),
+    HomeScore: m.homeScore, AwayScore: m.awayScore,
+    Away: getTeamName(m.away), AwayID: m.away, Locked: m.locked ? 1 : 0, Played: m.played ? 1 : 0
+  }));
+  const ws2 = XLSX.utils.json_to_sheet(matchData);
+  XLSX.utils.book_append_sheet(wb, ws2, 'League Matches');
+
+  // Sheet 3: Playoffs
+  const playoffData = state.playoffs.ties.map((t, i) => ({
+    Tie: i + 1, HomeID: t.home, Home: getTeamName(t.home),
+    Leg1H: t.leg1H, Leg1A: t.leg1A,
+    AwayID: t.away, Away: getTeamName(t.away),
+    Leg2H: t.leg2H, Leg2A: t.leg2A
+  }));
+  const ws3 = XLSX.utils.json_to_sheet(playoffData.length ? playoffData : [{ Tie: '' }]);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Playoffs');
+
+  // Sheet 4: Bracket
+  const bracketData = [];
+  ['r16', 'qf', 'sf'].forEach(round => {
+    (state.bracket[round] || []).forEach((t, i) => {
+      bracketData.push({
+        Round: round.toUpperCase(), Tie: i + 1,
+        HomeID: t.home, Home: getTeamName(t.home),
+        Leg1H: t.leg1H, Leg1A: t.leg1A,
+        AwayID: t.away, Away: getTeamName(t.away),
+        Leg2H: t.leg2H, Leg2A: t.leg2A
+      });
+    });
+  });
+  if (state.bracket.final) {
+    bracketData.push({
+      Round: 'FINAL', Tie: 1,
+      HomeID: state.bracket.final.home, Home: getTeamName(state.bracket.final.home),
+      Leg1H: state.bracket.final.homeScore, Leg1A: state.bracket.final.awayScore,
+      AwayID: state.bracket.final.away, Away: getTeamName(state.bracket.final.away),
+      Leg2H: null, Leg2A: null
+    });
+  }
+  const ws4 = XLSX.utils.json_to_sheet(bracketData.length ? bracketData : [{ Round: '' }]);
+  XLSX.utils.book_append_sheet(wb, ws4, 'Bracket');
+
+  // Sheet 5: State
+  const stateData = [{ Phase: state.phase, CurrentMatchday: state.currentMatchday, CurrentKnockoutRound: state.currentKnockoutRound }];
+  const ws5 = XLSX.utils.json_to_sheet(stateData);
+  XLSX.utils.book_append_sheet(wb, ws5, 'State');
+
+  XLSX.writeFile(wb, 'UCL_Simulator.xlsx');
+  showToast('Exported to Excel!', 'success');
+}
+
+function importFromExcel(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+
+      // Teams
+      const teamsSheet = wb.Sheets['Teams'];
+      if (teamsSheet) {
+        const teamsData = XLSX.utils.sheet_to_json(teamsSheet);
+        state.teams = teamsData.map(r => ({
+          id: r.ID, name: r.Name, stars: r.Stars, pot: r.Pot
+        }));
+      }
+
+      // League Matches
+      const matchSheet = wb.Sheets['League Matches'];
+      if (matchSheet) {
+        const matchData = XLSX.utils.sheet_to_json(matchSheet);
+        state.leagueMatches = matchData.map(r => ({
+          id: r.ID, day: r.Matchday, home: r.HomeID, away: r.AwayID,
+          homeScore: r.HomeScore === '' || r.HomeScore === undefined ? null : r.HomeScore,
+          awayScore: r.AwayScore === '' || r.AwayScore === undefined ? null : r.AwayScore,
+          locked: r.Locked === 1, played: r.Played === 1
+        }));
+      }
+
+      // Playoffs
+      const playoffSheet = wb.Sheets['Playoffs'];
+      if (playoffSheet) {
+        const playoffData = XLSX.utils.sheet_to_json(playoffSheet);
+        state.playoffs.ties = playoffData.filter(r => r.Tie !== '').map(r => ({
+          home: r.HomeID, away: r.AwayID,
+          leg1H: r.Leg1H === '' || r.Leg1H === undefined ? null : r.Leg1H,
+          leg1A: r.Leg1A === '' || r.Leg1A === undefined ? null : r.Leg1A,
+          leg2H: r.Leg2H === '' || r.Leg2H === undefined ? null : r.Leg2H,
+          leg2A: r.Leg2A === '' || r.Leg2A === undefined ? null : r.Leg2A,
+        }));
+      }
+
+      // Bracket
+      const bracketSheet = wb.Sheets['Bracket'];
+      if (bracketSheet) {
+        const bracketData = XLSX.utils.sheet_to_json(bracketSheet).filter(r => r.Round !== '');
+        state.bracket = { r16: [], qf: [], sf: [], final: null };
+        bracketData.forEach(r => {
+          const tie = {
+            home: r.HomeID, away: r.AwayID,
+            leg1H: r.Leg1H === '' || r.Leg1H === undefined ? null : r.Leg1H,
+            leg1A: r.Leg1A === '' || r.Leg1A === undefined ? null : r.Leg1A,
+            leg2H: r.Leg2H === '' || r.Leg2H === undefined ? null : r.Leg2H,
+            leg2A: r.Leg2A === '' || r.Leg2A === undefined ? null : r.Leg2A,
+          };
+          if (r.Round === 'R16') state.bracket.r16.push(tie);
+          else if (r.Round === 'QF') state.bracket.qf.push(tie);
+          else if (r.Round === 'SF') state.bracket.sf.push(tie);
+          else if (r.Round === 'FINAL') {
+            state.bracket.final = {
+              home: r.HomeID, away: r.AwayID,
+              homeScore: r.Leg1H === '' || r.Leg1H === undefined ? null : r.Leg1H,
+              awayScore: r.Leg1A === '' || r.Leg1A === undefined ? null : r.Leg1A,
+            };
+          }
+        });
+      }
+
+      // State
+      const stateSheet = wb.Sheets['State'];
+      if (stateSheet) {
+        const stateData = XLSX.utils.sheet_to_json(stateSheet);
+        if (stateData[0]) {
+          state.phase = stateData[0].Phase || 'league';
+          state.currentMatchday = stateData[0].CurrentMatchday || 1;
+          state.currentKnockoutRound = stateData[0].CurrentKnockoutRound || 'playoffs';
+        }
+      }
+
+      renderMatchdayTabs();
+      renderMatchday();
+      showToast('Imported from Excel!', 'success');
+    } catch (err) {
+      showToast('Import failed: ' + err.message, 'error');
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = ''; // reset file input
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  renderMatchdayTabs();
+  renderMatchday();
+  lucide.createIcons();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+
+</body>
+</html>

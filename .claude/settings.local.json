@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:documents.uefa.com)",
+      "WebFetch(domain:www.cbssports.com)",
+      "WebFetch(domain:www.espn.com)"
+    ]
+  }
+}
