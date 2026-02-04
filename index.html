@@ -159,16 +159,11 @@
         <button onclick="switchKnockoutRound('final')" id="ko-tab-final" class="ko-tab-btn px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors bg-bg-card-alt text-gray-400 hover:text-white">Final</button>
       </div>
 
-      <div class="flex flex-wrap gap-2 mb-4">
-        <button onclick="generateKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-bright hover:bg-blue-700 rounded font-semibold text-sm transition-colors">
-          <i data-lucide="git-branch" class="w-4 h-4"></i> <span id="generate-ko-label">Generate Playoff Draw</span>
-        </button>
-        <button onclick="simulateKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-blue hover:bg-indigo-800 rounded font-semibold text-sm transition-colors">
-          <i data-lucide="dices" class="w-4 h-4"></i> Simulate Round
-        </button>
-        <button onclick="advanceKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-semibold text-sm transition-colors">
-          <i data-lucide="arrow-right" class="w-4 h-4"></i> Advance Winners
-        </button>
+      <div id="knockout-actions" class="flex flex-wrap gap-2 mb-4"></div>
+
+      <!-- Bracket info banner -->
+      <div id="bracket-info" class="hidden bg-ucl-blue/10 border border-ucl-blue/30 rounded-lg px-4 py-2.5 mb-4 text-xs text-gray-400">
+        <span class="text-ucl-bright font-semibold">UEFA format:</span> The bracket is a fixed tournament tree. Playoffs &amp; R16 pairings are drawn; QF, SF, and Final matchups are predetermined by bracket position.
       </div>
 
       <div id="knockout-container"></div>
@@ -233,11 +228,18 @@ const DEFAULT_TEAMS = [
 let state = {
   teams: JSON.parse(JSON.stringify(DEFAULT_TEAMS)),
   leagueMatches: [], // { id, day, home, away, homeScore, awayScore, locked, played }
-  playoffs: { ties: [] },
+  // Bracket uses fixed tournament tree structure (UEFA format)
+  // Indices: PO/R16 [0-3]=Side A, [4-7]=Side B; QF [0-1]=Side A, [2-3]=Side B; SF [0]=A, [1]=B
+  // Bracket paths (within each side):
+  //   R16[0] vs R16[1] → QF[0],  R16[2] vs R16[3] → QF[1],  QF[0] vs QF[1] → SF[0]
+  //   R16[4] vs R16[5] → QF[2],  R16[6] vs R16[7] → QF[3],  QF[2] vs QF[3] → SF[1]
+  //   SF[0] vs SF[1] → Final
   bracket: {
-    r16: [],
-    qf: [],
-    sf: [],
+    drawn: false,
+    po: [],   // 8 ties
+    r16: [],  // 8 ties
+    qf: [],   // 4 ties
+    sf: [],   // 2 ties
     final: null
   },
   phase: 'league',
@@ -319,7 +321,7 @@ function switchTab(tab) {
   document.getElementById(`tab-${tab}`).classList.remove('text-gray-400');
 
   if (tab === 'standings') renderStandings();
-  if (tab === 'knockout') renderKnockout();
+  if (tab === 'knockout') { renderKnockoutActions(); renderKnockout(); }
   if (tab === 'teams') renderTeams();
   if (tab === 'league') renderMatchday();
 }
@@ -673,87 +675,340 @@ function renderStandings() {
 }
 
 // ============================================================
-// KNOCKOUT PHASE
+// KNOCKOUT PHASE — UEFA bracket tree format
 // ============================================================
+// Bracket structure (per side):
+//   PO[0]: 9/10 vs 23/24  → R16[0]: winner vs 7/8  ─┐
+//   PO[1]: 15/16 vs 17/18 → R16[1]: winner vs 1/2  ─┤─ QF[0] ─┐
+//   PO[2]: 11/12 vs 21/22 → R16[2]: winner vs 5/6  ─┐         ├─ SF[0] ─┐
+//   PO[3]: 13/14 vs 19/20 → R16[3]: winner vs 3/4  ─┤─ QF[1] ─┘         │
+//   (Side B mirrors at indices 4-7 / 2-3 / 1)                            ├─ Final
+//   QF/SF/Final are deterministic (no draw).                              │
+// ============================================================
+
 function switchKnockoutRound(round) {
   state.currentKnockoutRound = round;
   document.querySelectorAll('.ko-tab-btn').forEach(b => { b.classList.remove('subtab-active'); b.classList.add('bg-bg-card-alt', 'text-gray-400'); });
   const tab = document.getElementById(`ko-tab-${round}`);
   tab.classList.add('subtab-active');
   tab.classList.remove('bg-bg-card-alt', 'text-gray-400');
-
-  const labels = { playoffs: 'Generate Playoff Draw', r16: 'Generate R16 Draw', qf: 'Generate QF Draw', sf: 'Generate SF Draw', final: 'Generate Final' };
-  document.getElementById('generate-ko-label').textContent = labels[round] || 'Generate Draw';
-
+  renderKnockoutActions();
   renderKnockout();
 }
 
+function renderKnockoutActions() {
+  const actions = document.getElementById('knockout-actions');
+  const round = state.currentKnockoutRound;
+  const drawn = state.bracket.drawn;
+  const info = document.getElementById('bracket-info');
+
+  let html = '';
+
+  if (!drawn) {
+    // Only show the draw button before the bracket is drawn
+    html += `<button onclick="drawBracket()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-bright hover:bg-blue-700 rounded font-semibold text-sm transition-colors">
+      <i data-lucide="git-branch" class="w-4 h-4"></i> Draw Bracket
+    </button>`;
+    info.classList.add('hidden');
+  } else {
+    info.classList.remove('hidden');
+    const ties = state.bracket[round === 'playoffs' ? 'po' : round];
+    const hasTies = round === 'final' ? !!state.bracket.final : (ties && ties.length > 0);
+
+    if (hasTies) {
+      html += `<button onclick="simulateKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-ucl-blue hover:bg-indigo-800 rounded font-semibold text-sm transition-colors">
+        <i data-lucide="dices" class="w-4 h-4"></i> Simulate Round
+      </button>`;
+    }
+
+    // Show advance button for rounds that feed the next (not final)
+    if (round !== 'final' && hasTies) {
+      const nextLabels = { playoffs: 'Advance to R16', r16: 'Advance to QF', qf: 'Advance to SF', sf: 'Advance to Final' };
+      html += `<button onclick="advanceKnockoutRound()" class="flex items-center gap-1.5 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-semibold text-sm transition-colors">
+        <i data-lucide="arrow-right" class="w-4 h-4"></i> ${nextLabels[round]}
+      </button>`;
+    }
+  }
+
+  actions.innerHTML = html;
+  lucide.createIcons();
+}
+
+function makeTie(home, away) {
+  return { home, away, leg1H: null, leg1A: null, leg2H: null, leg2A: null };
+}
+
+function getKnockoutWinner(tie) {
+  if (tie.leg1H === null || tie.leg1A === null || tie.leg2H === null || tie.leg2A === null) return null;
+  const homeAgg = (tie.leg1H || 0) + (tie.leg2A || 0);
+  const awayAgg = (tie.leg1A || 0) + (tie.leg2H || 0);
+  if (homeAgg > awayAgg) return tie.home;
+  if (awayAgg > homeAgg) return tie.away;
+  // Aggregate tied — random tiebreaker (simulates penalties)
+  return Math.random() > 0.5 ? tie.home : tie.away;
+}
+
+// ---- DRAW: creates PO ties + seeds R16 with top-8 teams ----
+function drawBracket() {
+  const standings = calculateStandings();
+  if (standings.length < 24) {
+    showToast('Need at least 24 teams with standings.', 'error');
+    return;
+  }
+
+  // Helper: randomly assign one team from a positional pair to side A, other to B
+  function splitPair(posA, posB) {
+    return Math.random() > 0.5
+      ? [standings[posA].teamId, standings[posB].teamId]
+      : [standings[posB].teamId, standings[posA].teamId];
+  }
+
+  // Split each positional pair across two sides
+  // Top 8 (direct R16 qualifiers)
+  const [top1A, top1B] = splitPair(0, 1);   // positions 1/2
+  const [top3A, top3B] = splitPair(2, 3);   // positions 3/4
+  const [top5A, top5B] = splitPair(4, 5);   // positions 5/6
+  const [top7A, top7B] = splitPair(6, 7);   // positions 7/8
+
+  // Seeded playoff teams (positions 9-16)
+  const [s9A, s9B]   = splitPair(8, 9);     // positions 9/10
+  const [s11A, s11B] = splitPair(10, 11);   // positions 11/12
+  const [s13A, s13B] = splitPair(12, 13);   // positions 13/14
+  const [s15A, s15B] = splitPair(14, 15);   // positions 15/16
+
+  // Unseeded playoff teams (positions 17-24)
+  const [u17A, u17B] = splitPair(16, 17);   // positions 17/18
+  const [u19A, u19B] = splitPair(18, 19);   // positions 19/20
+  const [u21A, u21B] = splitPair(20, 21);   // positions 21/22
+  const [u23A, u23B] = splitPair(22, 23);   // positions 23/24
+
+  // PO ties: unseeded hosts leg 1, seeded hosts leg 2
+  // Side A (indices 0-3), Side B (indices 4-7)
+  state.bracket.po = [
+    // Side A
+    makeTie(u23A, s9A),   // [0] 9/10 vs 23/24 → feeds R16[0]
+    makeTie(u17A, s15A),  // [1] 15/16 vs 17/18 → feeds R16[1]
+    makeTie(u21A, s11A),  // [2] 11/12 vs 21/22 → feeds R16[2]
+    makeTie(u19A, s13A),  // [3] 13/14 vs 19/20 → feeds R16[3]
+    // Side B
+    makeTie(u23B, s9B),   // [4] mirror → feeds R16[4]
+    makeTie(u17B, s15B),  // [5] mirror → feeds R16[5]
+    makeTie(u21B, s11B),  // [6] mirror → feeds R16[6]
+    makeTie(u19B, s13B),  // [7] mirror → feeds R16[7]
+  ];
+
+  // R16: PO winner hosts leg 1, top-8 seed hosts leg 2
+  // home = PO winner (TBD until PO completes), away = top-8 seed
+  state.bracket.r16 = [
+    // Side A
+    makeTie(null, top7A),  // [0] 7/8 vs winner PO[0]
+    makeTie(null, top1A),  // [1] 1/2 vs winner PO[1]
+    makeTie(null, top5A),  // [2] 5/6 vs winner PO[2]
+    makeTie(null, top3A),  // [3] 3/4 vs winner PO[3]
+    // Side B
+    makeTie(null, top7B),  // [4] 8/7 vs winner PO[4]
+    makeTie(null, top1B),  // [5] 2/1 vs winner PO[5]
+    makeTie(null, top5B),  // [6] 6/5 vs winner PO[6]
+    makeTie(null, top3B),  // [7] 4/3 vs winner PO[7]
+  ];
+
+  state.bracket.qf = [];
+  state.bracket.sf = [];
+  state.bracket.final = null;
+  state.bracket.drawn = true;
+
+  showToast('Bracket drawn! Playoffs & R16 seedings set.', 'success');
+  state.currentKnockoutRound = 'playoffs';
+  switchKnockoutRound('playoffs');
+}
+
+// ---- ADVANCE functions: deterministic bracket progression ----
+function advanceKnockoutRound() {
+  const round = state.currentKnockoutRound;
+  if (round === 'playoffs') advanceFromPO();
+  else if (round === 'r16') advanceFromR16();
+  else if (round === 'qf') advanceFromQF();
+  else if (round === 'sf') advanceFromSF();
+  else showToast('No next round to advance to.', 'error');
+}
+
+function advanceFromPO() {
+  // Fill PO winners into R16 home slots
+  for (let i = 0; i < 8; i++) {
+    const winner = getKnockoutWinner(state.bracket.po[i]);
+    if (!winner) { showToast('Complete all playoff ties first.', 'error'); return; }
+    state.bracket.r16[i].home = winner;
+  }
+  showToast('Playoff winners placed into R16!', 'success');
+  switchKnockoutRound('r16');
+}
+
+function advanceFromR16() {
+  // QF matchups are DETERMINISTIC from bracket positions
+  // QF[0]: winner R16[0] vs winner R16[1] (Side A, top)
+  // QF[1]: winner R16[2] vs winner R16[3] (Side A, bottom)
+  // QF[2]: winner R16[4] vs winner R16[5] (Side B, top)
+  // QF[3]: winner R16[6] vs winner R16[7] (Side B, bottom)
+  state.bracket.qf = [];
+  for (let i = 0; i < 8; i += 2) {
+    const w1 = getKnockoutWinner(state.bracket.r16[i]);
+    const w2 = getKnockoutWinner(state.bracket.r16[i + 1]);
+    if (!w1 || !w2) { showToast('Complete all R16 ties first.', 'error'); return; }
+    // Home/away drawn randomly (per UEFA rules, only home/away order is drawn for QF/SF)
+    const [home, away] = Math.random() > 0.5 ? [w1, w2] : [w2, w1];
+    state.bracket.qf.push(makeTie(home, away));
+  }
+  showToast('Quarter-final matchups set from bracket!', 'success');
+  switchKnockoutRound('qf');
+}
+
+function advanceFromQF() {
+  // SF matchups are DETERMINISTIC from bracket positions
+  // SF[0]: winner QF[0] vs winner QF[1] (Side A)
+  // SF[1]: winner QF[2] vs winner QF[3] (Side B)
+  state.bracket.sf = [];
+  for (let i = 0; i < 4; i += 2) {
+    const w1 = getKnockoutWinner(state.bracket.qf[i]);
+    const w2 = getKnockoutWinner(state.bracket.qf[i + 1]);
+    if (!w1 || !w2) { showToast('Complete all QF ties first.', 'error'); return; }
+    const [home, away] = Math.random() > 0.5 ? [w1, w2] : [w2, w1];
+    state.bracket.sf.push(makeTie(home, away));
+  }
+  showToast('Semi-final matchups set from bracket!', 'success');
+  switchKnockoutRound('sf');
+}
+
+function advanceFromSF() {
+  // Final: winner SF[0] (Side A) vs winner SF[1] (Side B)
+  // Side A SF winner is nominal "home" team
+  const w1 = getKnockoutWinner(state.bracket.sf[0]);
+  const w2 = getKnockoutWinner(state.bracket.sf[1]);
+  if (!w1 || !w2) { showToast('Complete all SF ties first.', 'error'); return; }
+  state.bracket.final = { home: w1, away: w2, homeScore: null, awayScore: null };
+  showToast('Final set!', 'success');
+  switchKnockoutRound('final');
+}
+
+// ---- RENDERING ----
 function renderKnockout() {
   const container = document.getElementById('knockout-container');
   const round = state.currentKnockoutRound;
 
-  if (round === 'final') {
-    renderFinal(container);
-    return;
-  }
+  if (round === 'final') { renderFinal(container); return; }
 
-  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+  const ties = round === 'playoffs' ? state.bracket.po : state.bracket[round];
   if (!ties || ties.length === 0) {
+    const msg = state.bracket.drawn
+      ? 'Advance winners from the previous round to populate this stage.'
+      : 'Click "Draw Bracket" to create the full knockout bracket from league standings.';
     container.innerHTML = `
       <div class="bg-bg-card rounded-lg border border-border-subtle p-8 text-center text-gray-500">
-        <p class="font-display text-lg uppercase tracking-wider mb-2">No draw yet</p>
-        <p class="text-sm">Click "Generate ${round === 'playoffs' ? 'Playoff' : round.toUpperCase()} Draw" to create the fixtures.</p>
+        <p class="font-display text-lg uppercase tracking-wider mb-2">No fixtures yet</p>
+        <p class="text-sm">${msg}</p>
       </div>`;
     return;
   }
 
-  container.innerHTML = ties.map((tie, i) => {
-    const homeName = getTeamName(tie.home);
-    const awayName = getTeamName(tie.away);
-    const homeTeam = getTeam(tie.home);
-    const awayTeam = getTeam(tie.away);
+  // Determine side split
+  const perSide = ties.length / 2;
+  const sideA = ties.slice(0, perSide);
+  const sideB = ties.slice(perSide);
 
-    const agg1 = (tie.leg1H !== null && tie.leg1A !== null && tie.leg2H !== null && tie.leg2A !== null)
-      ? `(${(tie.leg1H||0)+(tie.leg2A||0)} - ${(tie.leg1A||0)+(tie.leg2H||0)} agg)`
-      : '';
+  // Build bracket path descriptions
+  const pathLabels = getBracketPathLabels(round);
 
+  function renderSide(sideTies, sideLabel, offset) {
     return `
-      <div class="bg-bg-card rounded-lg border border-border-subtle p-3 mb-3">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-display uppercase tracking-wider text-gray-500">Tie ${i+1}</span>
-          <div class="flex items-center gap-1">
-            <span class="text-xs text-gray-500">${agg1}</span>
-            <button onclick="simulateKnockoutTie('${round}', ${i})" class="p-1 rounded hover:bg-white/5 text-gray-400 hover:text-ucl-bright" title="Simulate tie">
-              <i data-lucide="dices" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-        </div>
-        <!-- Leg 1 -->
-        <div class="flex items-center gap-2 mb-1.5">
-          <span class="text-xs text-gray-500 w-10 shrink-0">Leg 1</span>
-          <div class="flex-1 text-right text-sm font-semibold text-white">${homeName}</div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <input type="number" min="0" max="20" class="score-input" value="${tie.leg1H !== null ? tie.leg1H : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg1H', this.value)" placeholder="-">
-            <span class="text-gray-500 text-xs font-bold">:</span>
-            <input type="number" min="0" max="20" class="score-input" value="${tie.leg1A !== null ? tie.leg1A : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg1A', this.value)" placeholder="-">
-          </div>
-          <div class="flex-1 text-sm font-semibold text-white">${awayName}</div>
-        </div>
-        <!-- Leg 2 -->
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-gray-500 w-10 shrink-0">Leg 2</span>
-          <div class="flex-1 text-right text-sm font-semibold text-white">${awayName}</div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <input type="number" min="0" max="20" class="score-input" value="${tie.leg2H !== null ? tie.leg2H : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg2H', this.value)" placeholder="-">
-            <span class="text-gray-500 text-xs font-bold">:</span>
-            <input type="number" min="0" max="20" class="score-input" value="${tie.leg2A !== null ? tie.leg2A : ''}" onchange="updateKnockoutScore('${round}', ${i}, 'leg2A', this.value)" placeholder="-">
-          </div>
-          <div class="flex-1 text-sm font-semibold text-white">${homeName}</div>
-        </div>
+      <div class="flex-1 min-w-[300px]">
+        <h3 class="font-display text-xs uppercase tracking-widest text-gray-500 mb-2 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full ${sideLabel === 'Side A' ? 'bg-ucl-bright' : 'bg-ucl-gold'}"></span>
+          ${sideLabel}
+        </h3>
+        ${sideTies.map((tie, i) => renderTieCard(tie, i + offset, round, pathLabels[i + offset])).join('')}
       </div>`;
-  }).join('');
+  }
+
+  container.innerHTML = `
+    <div class="flex flex-col lg:flex-row gap-4">
+      ${renderSide(sideA, 'Side A', 0)}
+      ${renderSide(sideB, 'Side B', perSide)}
+    </div>`;
 
   lucide.createIcons();
+}
+
+function getBracketPathLabels(round) {
+  if (round === 'playoffs') return [
+    '9/10 vs 23/24', '15/16 vs 17/18', '11/12 vs 21/22', '13/14 vs 19/20',
+    '9/10 vs 23/24', '15/16 vs 17/18', '11/12 vs 21/22', '13/14 vs 19/20'
+  ];
+  if (round === 'r16') return [
+    'vs Pos 7/8', 'vs Pos 1/2', 'vs Pos 5/6', 'vs Pos 3/4',
+    'vs Pos 7/8', 'vs Pos 1/2', 'vs Pos 5/6', 'vs Pos 3/4'
+  ];
+  if (round === 'qf') return ['QF 1', 'QF 2', 'QF 3', 'QF 4'];
+  if (round === 'sf') return ['SF (Side A)', 'SF (Side B)'];
+  return [];
+}
+
+function renderTieCard(tie, idx, round, pathLabel) {
+  const homeName = tie.home ? getTeamName(tie.home) : 'TBD';
+  const awayName = tie.away ? getTeamName(tie.away) : 'TBD';
+  const hasBothTeams = tie.home && tie.away;
+
+  const agg = (tie.leg1H !== null && tie.leg1A !== null && tie.leg2H !== null && tie.leg2A !== null)
+    ? `(${(tie.leg1H||0)+(tie.leg2A||0)} - ${(tie.leg1A||0)+(tie.leg2H||0)} agg)`
+    : '';
+
+  // Determine winner for highlighting
+  let winnerId = null;
+  if (agg) winnerId = getKnockoutWinner(tie);
+
+  const homeWin = winnerId === tie.home;
+  const awayWin = winnerId === tie.away;
+  const homeStyle = homeWin ? 'text-ucl-green font-bold' : awayWin ? 'text-gray-500' : 'text-white';
+  const awayStyle = awayWin ? 'text-ucl-green font-bold' : homeWin ? 'text-gray-500' : 'text-white';
+
+  const roundKey = round === 'playoffs' ? 'po' : round;
+
+  return `
+    <div class="bg-bg-card rounded-lg border border-border-subtle p-3 mb-2">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-display uppercase tracking-wider text-gray-500">${pathLabel}</span>
+        <div class="flex items-center gap-1">
+          <span class="text-xs text-gray-500">${agg}</span>
+          ${hasBothTeams ? `<button onclick="simulateKnockoutTie('${roundKey}', ${idx})" class="p-1 rounded hover:bg-white/5 text-gray-400 hover:text-ucl-bright" title="Simulate tie">
+            <i data-lucide="dices" class="w-3.5 h-3.5"></i>
+          </button>` : ''}
+        </div>
+      </div>
+      <!-- Leg 1: home team hosts -->
+      <div class="flex items-center gap-2 mb-1.5">
+        <span class="text-xs text-gray-500 w-10 shrink-0">Leg 1</span>
+        <div class="flex-1 text-right text-sm font-semibold ${homeStyle}">${homeName}</div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <input type="number" min="0" max="20" class="score-input" value="${tie.leg1H !== null ? tie.leg1H : ''}"
+            onchange="updateKnockoutScore('${roundKey}', ${idx}, 'leg1H', this.value)" placeholder="-" ${hasBothTeams ? '' : 'disabled'}>
+          <span class="text-gray-500 text-xs font-bold">:</span>
+          <input type="number" min="0" max="20" class="score-input" value="${tie.leg1A !== null ? tie.leg1A : ''}"
+            onchange="updateKnockoutScore('${roundKey}', ${idx}, 'leg1A', this.value)" placeholder="-" ${hasBothTeams ? '' : 'disabled'}>
+        </div>
+        <div class="flex-1 text-sm font-semibold ${awayStyle}">${awayName}</div>
+      </div>
+      <!-- Leg 2: away team hosts -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-500 w-10 shrink-0">Leg 2</span>
+        <div class="flex-1 text-right text-sm font-semibold ${awayStyle}">${awayName}</div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <input type="number" min="0" max="20" class="score-input" value="${tie.leg2H !== null ? tie.leg2H : ''}"
+            onchange="updateKnockoutScore('${roundKey}', ${idx}, 'leg2H', this.value)" placeholder="-" ${hasBothTeams ? '' : 'disabled'}>
+          <span class="text-gray-500 text-xs font-bold">:</span>
+          <input type="number" min="0" max="20" class="score-input" value="${tie.leg2A !== null ? tie.leg2A : ''}"
+            onchange="updateKnockoutScore('${roundKey}', ${idx}, 'leg2A', this.value)" placeholder="-" ${hasBothTeams ? '' : 'disabled'}>
+        </div>
+        <div class="flex-1 text-sm font-semibold ${homeStyle}">${homeName}</div>
+      </div>
+    </div>`;
 }
 
 function renderFinal(container) {
@@ -780,6 +1035,7 @@ function renderFinal(container) {
         <div class="flex items-center gap-3 justify-center">
           <div class="text-right flex-1">
             <p class="text-lg font-bold text-white">${homeName}</p>
+            <p class="text-xs text-gray-500">Side A winner</p>
           </div>
           <div class="flex items-center gap-1.5">
             <input type="number" min="0" max="20" class="score-input text-lg w-12 h-10" value="${f.homeScore !== null ? f.homeScore : ''}" onchange="updateFinalScore('home', this.value)" placeholder="-">
@@ -788,6 +1044,7 @@ function renderFinal(container) {
           </div>
           <div class="flex-1">
             <p class="text-lg font-bold text-white">${awayName}</p>
+            <p class="text-xs text-gray-500">Side B winner</p>
           </div>
         </div>
         <div class="text-center mt-4">
@@ -807,8 +1064,9 @@ function renderFinal(container) {
   lucide.createIcons();
 }
 
-function updateKnockoutScore(round, tieIdx, field, val) {
-  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+// ---- SCORE UPDATES & SIMULATION ----
+function updateKnockoutScore(roundKey, tieIdx, field, val) {
+  const ties = state.bracket[roundKey];
   if (!ties || !ties[tieIdx]) return;
   ties[tieIdx][field] = val === '' ? null : parseInt(val);
 }
@@ -821,10 +1079,11 @@ function updateFinalScore(side, val) {
   renderKnockout();
 }
 
-function simulateKnockoutTie(round, tieIdx) {
-  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
+function simulateKnockoutTie(roundKey, tieIdx) {
+  const ties = state.bracket[roundKey];
   if (!ties || !ties[tieIdx]) return;
   const tie = ties[tieIdx];
+  if (!tie.home || !tie.away) return;
   const homeTeam = getTeam(tie.home);
   const awayTeam = getTeam(tie.away);
 
@@ -849,7 +1108,7 @@ function simulateFinal() {
   const result = simulateScore(homeTeam.stars, awayTeam.stars);
   f.homeScore = result.home;
   f.awayScore = result.away;
-  // Ensure no draw in final
+  // Ensure no draw in final (penalties)
   if (f.homeScore === f.awayScore) {
     if (Math.random() > 0.5) f.homeScore++;
     else f.awayScore++;
@@ -860,140 +1119,17 @@ function simulateFinal() {
 function simulateKnockoutRound() {
   const round = state.currentKnockoutRound;
   if (round === 'final') { simulateFinal(); return; }
-  const ties = round === 'playoffs' ? state.playoffs.ties : state.bracket[round];
-  if (!ties || ties.length === 0) { showToast('No ties to simulate. Generate the draw first.', 'error'); return; }
-  ties.forEach((_, i) => simulateKnockoutTie(round, i));
-  showToast(`${round === 'playoffs' ? 'Playoffs' : round.toUpperCase()} simulated!`, 'success');
-}
-
-function generateKnockoutRound() {
-  const round = state.currentKnockoutRound;
-
-  if (round === 'playoffs') {
-    generatePlayoffs();
-  } else if (round === 'r16') {
-    generateR16();
-  } else if (round === 'qf') {
-    generateQF();
-  } else if (round === 'sf') {
-    generateSF();
-  } else if (round === 'final') {
-    generateFinalDraw();
-  }
-}
-
-function getKnockoutWinner(tie) {
-  if (tie.leg1H === null || tie.leg1A === null || tie.leg2H === null || tie.leg2A === null) return null;
-  const homeAgg = (tie.leg1H || 0) + (tie.leg2A || 0);
-  const awayAgg = (tie.leg1A || 0) + (tie.leg2H || 0);
-  if (homeAgg > awayAgg) return tie.home;
-  if (awayAgg > homeAgg) return tie.away;
-  // Away goals rule (removed in real UCL but we'll use random tiebreaker)
-  return Math.random() > 0.5 ? tie.home : tie.away;
-}
-
-function generatePlayoffs() {
-  const standings = calculateStandings();
-  const playoffTeams = standings.slice(8, 24); // 9th-24th
-  if (playoffTeams.length < 16) {
-    showToast('Need complete standings first. Play all league matches.', 'error');
-    return;
-  }
-
-  // Seeded (9-16) vs Unseeded (17-24)
-  const seeded = playoffTeams.slice(0, 8);
-  const unseeded = shuffle(playoffTeams.slice(8, 16));
-
-  state.playoffs.ties = seeded.map((s, i) => ({
-    home: unseeded[i].teamId,
-    away: s.teamId,
-    leg1H: null, leg1A: null, leg2H: null, leg2A: null
-  }));
-
-  showToast('Playoff draw complete!', 'success');
+  const roundKey = round === 'playoffs' ? 'po' : round;
+  const ties = state.bracket[roundKey];
+  if (!ties || ties.length === 0) { showToast('No ties to simulate.', 'error'); return; }
+  // Only simulate ties that have both teams assigned
+  let count = 0;
+  ties.forEach((tie, i) => {
+    if (tie.home && tie.away) { simulateKnockoutTie(roundKey, i); count++; }
+  });
+  if (count === 0) showToast('No complete ties to simulate.', 'error');
+  else showToast(`${round === 'playoffs' ? 'Playoffs' : round.toUpperCase()} simulated!`, 'success');
   renderKnockout();
-}
-
-function generateR16() {
-  const standings = calculateStandings();
-  const top8 = standings.slice(0, 8);
-
-  // Get playoff winners
-  if (state.playoffs.ties.length === 0) {
-    showToast('Generate and complete playoffs first.', 'error');
-    return;
-  }
-  const playoffWinners = state.playoffs.ties.map(getKnockoutWinner).filter(Boolean);
-  if (playoffWinners.length < 8) {
-    showToast('Complete all playoff ties first.', 'error');
-    return;
-  }
-
-  // Top 8 are seeded, playoff winners unseeded
-  const unseeded = shuffle(playoffWinners);
-  state.bracket.r16 = top8.map((s, i) => ({
-    home: unseeded[i],
-    away: s.teamId,
-    leg1H: null, leg1A: null, leg2H: null, leg2A: null
-  }));
-
-  showToast('R16 draw complete!', 'success');
-  renderKnockout();
-}
-
-function generateQF() {
-  if (state.bracket.r16.length === 0) { showToast('Complete the Round of 16 first.', 'error'); return; }
-  const winners = state.bracket.r16.map(getKnockoutWinner).filter(Boolean);
-  if (winners.length < 8) { showToast('Complete all R16 ties first.', 'error'); return; }
-
-  const shuffled = shuffle(winners);
-  state.bracket.qf = [];
-  for (let i = 0; i < shuffled.length; i += 2) {
-    state.bracket.qf.push({
-      home: shuffled[i], away: shuffled[i + 1],
-      leg1H: null, leg1A: null, leg2H: null, leg2A: null
-    });
-  }
-  showToast('QF draw complete!', 'success');
-  renderKnockout();
-}
-
-function generateSF() {
-  if (state.bracket.qf.length === 0) { showToast('Complete the Quarter-Finals first.', 'error'); return; }
-  const winners = state.bracket.qf.map(getKnockoutWinner).filter(Boolean);
-  if (winners.length < 4) { showToast('Complete all QF ties first.', 'error'); return; }
-
-  const shuffled = shuffle(winners);
-  state.bracket.sf = [];
-  for (let i = 0; i < shuffled.length; i += 2) {
-    state.bracket.sf.push({
-      home: shuffled[i], away: shuffled[i + 1],
-      leg1H: null, leg1A: null, leg2H: null, leg2A: null
-    });
-  }
-  showToast('SF draw complete!', 'success');
-  renderKnockout();
-}
-
-function generateFinalDraw() {
-  if (state.bracket.sf.length === 0) { showToast('Complete the Semi-Finals first.', 'error'); return; }
-  const winners = state.bracket.sf.map(getKnockoutWinner).filter(Boolean);
-  if (winners.length < 2) { showToast('Complete all SF ties first.', 'error'); return; }
-
-  state.bracket.final = {
-    home: winners[0], away: winners[1],
-    homeScore: null, awayScore: null
-  };
-  showToast('Final set!', 'success');
-  renderKnockout();
-}
-
-function advanceKnockoutRound() {
-  const round = state.currentKnockoutRound;
-  const next = { playoffs: 'r16', r16: 'qf', qf: 'sf', sf: 'final' };
-  if (!next[round]) { showToast('No next round to advance to.', 'error'); return; }
-  switchKnockoutRound(next[round]);
-  generateKnockoutRound();
 }
 
 // ============================================================
@@ -1053,48 +1189,52 @@ function exportToExcel() {
   const ws2 = XLSX.utils.json_to_sheet(matchData);
   XLSX.utils.book_append_sheet(wb, ws2, 'League Matches');
 
-  // Sheet 3: Playoffs
-  const playoffData = state.playoffs.ties.map((t, i) => ({
-    Tie: i + 1, HomeID: t.home, Home: getTeamName(t.home),
-    Leg1H: t.leg1H, Leg1A: t.leg1A,
-    AwayID: t.away, Away: getTeamName(t.away),
-    Leg2H: t.leg2H, Leg2A: t.leg2A
-  }));
-  const ws3 = XLSX.utils.json_to_sheet(playoffData.length ? playoffData : [{ Tie: '' }]);
-  XLSX.utils.book_append_sheet(wb, ws3, 'Playoffs');
-
-  // Sheet 4: Bracket
+  // Sheet 3: Bracket (all rounds in one sheet with bracket index preserved)
   const bracketData = [];
-  ['r16', 'qf', 'sf'].forEach(round => {
-    (state.bracket[round] || []).forEach((t, i) => {
+  const roundKeys = ['po', 'r16', 'qf', 'sf'];
+  roundKeys.forEach(roundKey => {
+    (state.bracket[roundKey] || []).forEach((t, i) => {
       bracketData.push({
-        Round: round.toUpperCase(), Tie: i + 1,
-        HomeID: t.home, Home: getTeamName(t.home),
+        Round: roundKey.toUpperCase(), Index: i,
+        Side: getSide(roundKey, i),
+        HomeID: t.home, Home: t.home ? getTeamName(t.home) : 'TBD',
         Leg1H: t.leg1H, Leg1A: t.leg1A,
-        AwayID: t.away, Away: getTeamName(t.away),
+        AwayID: t.away, Away: t.away ? getTeamName(t.away) : 'TBD',
         Leg2H: t.leg2H, Leg2A: t.leg2A
       });
     });
   });
   if (state.bracket.final) {
     bracketData.push({
-      Round: 'FINAL', Tie: 1,
+      Round: 'FINAL', Index: 0, Side: '-',
       HomeID: state.bracket.final.home, Home: getTeamName(state.bracket.final.home),
       Leg1H: state.bracket.final.homeScore, Leg1A: state.bracket.final.awayScore,
       AwayID: state.bracket.final.away, Away: getTeamName(state.bracket.final.away),
       Leg2H: null, Leg2A: null
     });
   }
-  const ws4 = XLSX.utils.json_to_sheet(bracketData.length ? bracketData : [{ Round: '' }]);
-  XLSX.utils.book_append_sheet(wb, ws4, 'Bracket');
+  const ws3 = XLSX.utils.json_to_sheet(bracketData.length ? bracketData : [{ Round: '' }]);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Bracket');
 
-  // Sheet 5: State
-  const stateData = [{ Phase: state.phase, CurrentMatchday: state.currentMatchday, CurrentKnockoutRound: state.currentKnockoutRound }];
-  const ws5 = XLSX.utils.json_to_sheet(stateData);
-  XLSX.utils.book_append_sheet(wb, ws5, 'State');
+  // Sheet 4: State
+  const stateData = [{
+    Phase: state.phase,
+    CurrentMatchday: state.currentMatchday,
+    CurrentKnockoutRound: state.currentKnockoutRound,
+    BracketDrawn: state.bracket.drawn ? 1 : 0
+  }];
+  const ws4 = XLSX.utils.json_to_sheet(stateData);
+  XLSX.utils.book_append_sheet(wb, ws4, 'State');
 
   XLSX.writeFile(wb, 'UCL_Simulator.xlsx');
   showToast('Exported to Excel!', 'success');
+}
+
+function getSide(roundKey, idx) {
+  if (roundKey === 'po' || roundKey === 'r16') return idx < 4 ? 'A' : 'B';
+  if (roundKey === 'qf') return idx < 2 ? 'A' : 'B';
+  if (roundKey === 'sf') return idx === 0 ? 'A' : 'B';
+  return '-';
 }
 
 function importFromExcel(event) {
@@ -1127,43 +1267,37 @@ function importFromExcel(event) {
         }));
       }
 
-      // Playoffs
-      const playoffSheet = wb.Sheets['Playoffs'];
-      if (playoffSheet) {
-        const playoffData = XLSX.utils.sheet_to_json(playoffSheet);
-        state.playoffs.ties = playoffData.filter(r => r.Tie !== '').map(r => ({
-          home: r.HomeID, away: r.AwayID,
-          leg1H: r.Leg1H === '' || r.Leg1H === undefined ? null : r.Leg1H,
-          leg1A: r.Leg1A === '' || r.Leg1A === undefined ? null : r.Leg1A,
-          leg2H: r.Leg2H === '' || r.Leg2H === undefined ? null : r.Leg2H,
-          leg2A: r.Leg2A === '' || r.Leg2A === undefined ? null : r.Leg2A,
-        }));
-      }
-
       // Bracket
       const bracketSheet = wb.Sheets['Bracket'];
       if (bracketSheet) {
-        const bracketData = XLSX.utils.sheet_to_json(bracketSheet).filter(r => r.Round !== '');
-        state.bracket = { r16: [], qf: [], sf: [], final: null };
-        bracketData.forEach(r => {
+        const bracketRows = XLSX.utils.sheet_to_json(bracketSheet).filter(r => r.Round !== '');
+        state.bracket = { drawn: false, po: [], r16: [], qf: [], sf: [], final: null };
+
+        // Sort by index to preserve bracket positions
+        bracketRows.sort((a, b) => a.Index - b.Index);
+
+        bracketRows.forEach(r => {
+          const parseScore = v => (v === '' || v === undefined || v === null) ? null : v;
           const tie = {
-            home: r.HomeID, away: r.AwayID,
-            leg1H: r.Leg1H === '' || r.Leg1H === undefined ? null : r.Leg1H,
-            leg1A: r.Leg1A === '' || r.Leg1A === undefined ? null : r.Leg1A,
-            leg2H: r.Leg2H === '' || r.Leg2H === undefined ? null : r.Leg2H,
-            leg2A: r.Leg2A === '' || r.Leg2A === undefined ? null : r.Leg2A,
+            home: r.HomeID || null, away: r.AwayID || null,
+            leg1H: parseScore(r.Leg1H), leg1A: parseScore(r.Leg1A),
+            leg2H: parseScore(r.Leg2H), leg2A: parseScore(r.Leg2A),
           };
-          if (r.Round === 'R16') state.bracket.r16.push(tie);
-          else if (r.Round === 'QF') state.bracket.qf.push(tie);
-          else if (r.Round === 'SF') state.bracket.sf.push(tie);
-          else if (r.Round === 'FINAL') {
+          const round = r.Round.toLowerCase();
+          if (round === 'po') state.bracket.po.push(tie);
+          else if (round === 'r16') state.bracket.r16.push(tie);
+          else if (round === 'qf') state.bracket.qf.push(tie);
+          else if (round === 'sf') state.bracket.sf.push(tie);
+          else if (round === 'final') {
             state.bracket.final = {
               home: r.HomeID, away: r.AwayID,
-              homeScore: r.Leg1H === '' || r.Leg1H === undefined ? null : r.Leg1H,
-              awayScore: r.Leg1A === '' || r.Leg1A === undefined ? null : r.Leg1A,
+              homeScore: parseScore(r.Leg1H), awayScore: parseScore(r.Leg1A),
             };
           }
         });
+
+        // If we have PO ties, the bracket was drawn
+        if (state.bracket.po.length > 0) state.bracket.drawn = true;
       }
 
       // State
@@ -1174,6 +1308,9 @@ function importFromExcel(event) {
           state.phase = stateData[0].Phase || 'league';
           state.currentMatchday = stateData[0].CurrentMatchday || 1;
           state.currentKnockoutRound = stateData[0].CurrentKnockoutRound || 'playoffs';
+          if (stateData[0].BracketDrawn !== undefined) {
+            state.bracket.drawn = stateData[0].BracketDrawn === 1;
+          }
         }
       }
 

@@ -5,7 +5,9 @@
       "WebFetch(domain:en.wikipedia.org)",
       "WebFetch(domain:documents.uefa.com)",
       "WebFetch(domain:www.cbssports.com)",
-      "WebFetch(domain:www.espn.com)"
+      "WebFetch(domain:www.espn.com)",
+      "WebFetch(domain:www.skysports.com)",
+      "WebFetch(domain:www.uefa.com)"
     ]
   }
 }
